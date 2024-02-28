@@ -1,18 +1,40 @@
 import torch
 import torch.nn as nn
-from mistral.model import Transformer, SimpleInputMetadata
+from mistral.model import Transformer, SimpleInputMetadata, ModelArgs
+
+import json
 
 class MEEstral(Transformer):
-    def __init__(self, args, pipeline_rank = 0, num_pipeline_ranks = 1):
-        super().__init__(args, pipeline_rank, num_pipeline_ranks)
+    def __init__(self, args, pipeline_rank = 0, num_pipeline_ranks = 1, path_weights = None, max_batch_size = 1, device = "cuda", dtype = torch.float16):
+
+        if path_weights is not None:
+            with open(path_weights + "/params.json", "r") as f:
+                args = ModelArgs.from_dict(json.load(f))
+
         self.args = args
+        self.args.max_batch_size = max_batch_size
+
+        super().__init__(self.args, pipeline_rank, num_pipeline_ranks)
+        
+        if path_weights is not None:
+        
+            # will I really use this?
+            if num_pipeline_ranks > 1:
+                pipeline_rank = torch.distributed.get_rank()
+            else:
+                pipeline_rank = 0
+
+            loaded = torch.load(str(path_weights + "/consolidated.00.pth"), mmap=True)
+            self.load_state_dict(loaded, assign=True)        
+        
+        self.to(device)
 
         # should be added later
-        self.EEs = [1,1,1,1,1,1,1,1,1,1,1]
-        self.exits = nn.ModuleList([flag_exit(self.args) for _ in range(sum(self.EEs))])
+        self.EEs = [16, 24]        
+        self.exits = nn.ModuleList([flag_exit(self.args) for _ in range(len(self.EEs))])
         
 
-    def forward(self,
+    def forward_partial(self,
                 input_ids,
                 seqlens,
                 cache = None):
@@ -59,6 +81,27 @@ class MEEstral(Transformer):
             # Last rank has a final normalization step.
             assert self.norm is not None
             return self.norm(h)
+        
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        seqlens,
+        cache = None,
+    ) -> torch.Tensor:
+        h = self.forward_partial(input_ids, seqlens, cache=cache)
+        if self.pipeline_rank < self.num_pipeline_ranks - 1:
+            # ignore the intermediate activations as we'll get the final output from
+            # the last stage
+            outs = torch.empty(
+                h.shape[0], self.vocab_size, device=h.device, dtype=h.dtype
+            )
+        else:
+            assert self.output is not None
+            outs = self.output(h)
+        if self.num_pipeline_ranks > 1:
+            torch.distributed.broadcast(outs, src=self.num_pipeline_ranks - 1)
+        return outs.float()
         
 
 
