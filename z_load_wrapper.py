@@ -1,4 +1,4 @@
-from wrapper_MEEstral import MEEstral
+from wrapper.wrapper_MEEstral import MEEstral
 from mistral.model import ModelArgs
 from mistral.tokenizer import Tokenizer
 from main import generate
@@ -22,6 +22,6 @@ path_weights = "model_weights\mistral-7B-v0.1"
 model = MEEstral(None, path_weights = path_weights, max_batch_size=10, device = "cuda")
 tokenizer = Tokenizer(path_weights + "/tokenizer.model")
 
-out = generate([["Hola me llamo Miguel"],["Hola me llamo Iván"]], model, tokenizer, max_tokens = 25,  temperature = 1)
+out = generate(["Hola me llamo Miguel"], model, tokenizer, max_tokens = 25,  temperature = 1)
 
 print(out)
