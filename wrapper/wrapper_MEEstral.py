@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from mistral.model import Transformer, SimpleInputMetadata, ModelArgs
+from mistral.mod_model import Transformer, SimpleInputMetadata, ModelArgs
 
 import json
 

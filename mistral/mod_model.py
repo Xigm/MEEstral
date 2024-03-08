@@ -26,8 +26,11 @@ class ModelArgs(Serializable):
     n_kv_heads: int
     norm_eps: float
     vocab_size: int
+    sliding_window: int
 
     max_batch_size: int = 0
+
+    use_memory_efficient_attention: bool = False
 
     # For rotary embeddings. If not set, will be infered from sliding window.
     rope_theta: Optional[float] = None
@@ -75,6 +78,11 @@ class Attention(nn.Module):
         self.wv = nn.Linear(args.dim, args.n_kv_heads * args.head_dim, bias=False)
         self.wo = nn.Linear(args.n_heads * args.head_dim, args.dim, bias=False)
 
+        if self.args.sliding_window is not None:
+            # Am i really gonna use sliding window attention? I'll just implement vanilla
+            # attention for the time being. (max size the sliding window)
+            self.register_buffer("attn_bias", torch.tril(torch.ones(self.args.sliding_window, self.args.sliding_window)) * float('-inf'))
+
     def forward(
         self,
         x: torch.Tensor,
@@ -109,9 +117,23 @@ class Attention(nn.Module):
 
         # xformers requires (B=1, S, H, D)
         xq, key, val = xq[None, ...], key[None, ...], val[None, ...]
-        output = memory_efficient_attention(
-            xq, key, val, None if cache is None else cache.mask
-        )
+
+        if self.args.use_memory_efficient_attention:
+            output = memory_efficient_attention(
+                xq, key, val, None if cache is None else cache.mask
+            )
+        else:
+            # use normal attention
+            scale = 1 / query.shape[-1] ** 0.5
+            query = query * scale
+            attn = query @ key.transpose(-2, -1)
+            # apply sliding window attention
+            attn = attn + self.attn_bias[:self.chunk_size,:self.chunk_size]
+            attn = attn.softmax(-1)
+            attn = F.dropout(attn, p)
+            return attn @ value
+
+
 
         return self.wo(output.view(seqlen_sum, self.n_heads * self.head_dim))
 
