@@ -5,9 +5,11 @@ from pathlib import Path
 from wrapper.wrapper_MEEstral import MEEstral
 import torch
 
-path_weights = "model_weights\mistral-7B-v0.1"
+path_weights = "./model_weights/mistral-7B-v0.1"
+max_tokens = 25
 
-model = MEEstral(None, path_weights = path_weights, max_batch_size=10, device = "cuda")
+
+model = MEEstral(None, path_weights = path_weights, max_batch_size=10, device = "cpu")
 tokenizer = Tokenizer(path_weights + "/tokenizer.model")
 
 inputs = ["Hola me llamo Miguel"]
@@ -26,9 +28,16 @@ for i in range(len(tokens)):
 # tokenize
 tokens = torch.tensor(tokens, dtype=torch.long).to(model.device)
 
-
 # prepare cache
+cache_window = max(seqlens) + max_tokens
+if cache_window > model.args.sliding_window:
+    cache_window = model.args.sliding_window
 
+# cache = RotatingBufferCache(
+#     model.
+
+
+# )
 
 # bookkeeping
 
