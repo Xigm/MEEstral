@@ -81,7 +81,7 @@ class Attention(nn.Module):
         if self.args.sliding_window is not None:
             # Am i really gonna use sliding window attention? I'll just implement vanilla
             # attention for the time being. (max size the sliding window)
-            self.register_buffer("attn_bias", torch.tril(torch.ones(self.args.sliding_window, self.args.sliding_window)) * float('-inf'))
+            self.register_buffer("attn_bias", torch.tril(torch.ones(self.args.sliding_window, self.args.sliding_window)))
 
     def forward(
         self,
@@ -89,12 +89,12 @@ class Attention(nn.Module):
         freqs_cis: torch.Tensor,
         cache: Optional[CacheView],
     ) -> torch.Tensor:
-        seqlen_sum, _ = x.shape
+        # lets expect x to be (B, T, D)
+        B, T, D = x.shape
 
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
-        xq = xq.view(seqlen_sum, self.n_heads, self.head_dim)
-        xk = xk.view(seqlen_sum, self.n_kv_heads, self.head_dim)
-        xv = xv.view(seqlen_sum, self.n_kv_heads, self.head_dim)
+        xk = xk.view(B, T, self.n_kv_heads, self.head_dim)
+        xv = xv.view(B, T, self.n_kv_heads, self.head_dim)
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
         if cache is None:
@@ -113,29 +113,31 @@ class Attention(nn.Module):
             )
 
         # Repeat keys and values to match number of query heads
+        # repeats = self.n_heads // self.n_kv_heads
         key, val = repeat_kv(key, val, self.repeats, dim=1)
 
-        # xformers requires (B=1, S, H, D)
-        xq, key, val = xq[None, ...], key[None, ...], val[None, ...]
+        # # xformers requires (B=1, S, H, D)
+        # xq, key, val = xq[None, ...], key[None, ...], val[None, ...]
 
         if self.args.use_memory_efficient_attention:
             output = memory_efficient_attention(
                 xq, key, val, None if cache is None else cache.mask
             )
         else:
+            xq, key, val = xq.transpose(-3,-2), key.transpose(-3,-2), val.transpose(-3,-2)
             # use normal attention
-            scale = 1 / query.shape[-1] ** 0.5
-            query = query * scale
-            attn = query @ key.transpose(-2, -1)
+            xq = xq * self.scale
+            attn = xq @ key.transpose(-2, -1)
             # apply sliding window attention
-            attn = attn + self.attn_bias[:self.chunk_size,:self.chunk_size]
+            attn = attn.masked_fill(self.attn_bias[:T,:T] == 0, float('-inf'))
             attn = attn.softmax(-1)
-            attn = F.dropout(attn, p)
-            return attn @ value
+            # if pretraining here would go a dropout layer
+            # attn = self.attn_dropout(attn)
 
+            output =  (attn @ val).transpose(-3,-2).contiguous()
+            
 
-
-        return self.wo(output.view(seqlen_sum, self.n_heads * self.head_dim))
+        return self.wo(output.view(B, T, self.n_heads * self.head_dim))
 
 
 class FeedForward(nn.Module):
@@ -363,7 +365,8 @@ class Transformer(nn.Module):
             else:
                 raise ValueError(f"Unexpected key {k}")
         assert set(state_dict.keys()) == skipped.union(set(state_to_load.keys()))
-        super().load_state_dict(state_to_load, *args, **kwargs)
+        # strict=False is necessary because we are skipping attn_bias parameters.
+        super().load_state_dict(state_to_load, strict=False, *args, **kwargs)
 
     @staticmethod
     def from_folder(

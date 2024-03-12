@@ -1,22 +1,22 @@
 from mistral.mod_model import ModelArgs
 from mistral.tokenizer import Tokenizer
 from mistral.cache import RotatingBufferCache
-from main import generate
+from main import generate, sample
 from pathlib import Path
 from wrapper.wrapper_MEEstral import MEEstral
 import torch
 
 path_weights = "./model_weights/mistral-7B-v0.1"
 max_tokens = 25
-chunk_size = 3
+chunk_size = 50
 
 model = MEEstral(None, path_weights = path_weights, max_batch_size=10, device = "cuda")
 tokenizer = Tokenizer(path_weights + "/tokenizer.model")
 
-inputs = ["Hola me llamo Miguel"]
+inputs = ["The color of the sky is"]
 inputs_batch = ["Hola me llamo Miguel","Hola me llamo Iván"]
 
-tokens = tokenizer._model.encode(inputs_batch)
+tokens = tokenizer._model.encode(inputs)
 seqlens = [len(x) for x in tokens]
 max_len = max(seqlens)
 
@@ -51,7 +51,7 @@ for s in range(0, max_len, chunk_size):
     prelogits = model.forward(
         torch.tensor(sum(prompt_chunks, []), device=model.device, dtype=torch.long),
         seqlens=[len(p) for p in prompt_chunks],
-        cache=None
+        cache=cache
     )
     logits = torch.log_softmax(prelogits, dim=-1)
 
@@ -70,6 +70,27 @@ for s in range(0, max_len, chunk_size):
 
 
 # decode
+generated_tokens = []
+assert last_token_prelogits is not None
+for i_token in range(max_tokens):
+    next_token = sample(last_token_prelogits, temperature=0.01, top_p=0.8)
+
+    last_token_logits = torch.log_softmax(last_token_prelogits, dim=-1)
+    for i in range(len(seqlens)):
+        logprobs[i].append(last_token_logits[i, next_token[i]].item())
+
+    generated_tokens.append(next_token[:, None])
+    last_token_prelogits = model.forward(next_token, seqlens=[1] * len(seqlens), cache=cache)
+    # assert last_token_prelogits.shape == (B, V)
+
+generated_words = []
+if generated_tokens:
+    generated_tokens = torch.cat(generated_tokens, 1)
+    for i, x in enumerate(tokens):
+        generated_words.append(tokenizer.decode(x + generated_tokens[i].tolist()))
 
 
 print(logits)
+print(generated_words)
+
+# print(tokenizer.model._decode(generated_tokens))
