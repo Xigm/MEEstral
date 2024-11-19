@@ -1,176 +1,107 @@
-# Mistral Transformer
+# Project Title
 
-This repository contains minimal code to run our 7B model.
+Project with the aim to implement and analyze the impact on computation of EE in LLMs: Transformers and Mamba.
 
-Blog: [https://mistral.ai/news/announcing-mistral-7b/](https://mistral.ai/news/announcing-mistral-7b/)\
-Discord: [https://discord.com/invite/mistralai](https://discord.com/invite/mistralai)\
-Documentation: [https://docs.mistral.ai/](https://docs.mistral.ai/)\
-Guardrailing: [https://docs.mistral.ai/usage/guardrailing](https://docs.mistral.ai/usage/guardrailing)
+This codes may (should) train any Mistral model (transformer or mamba) with EEs for its usage.
 
-## Deployment
+---
 
-The `deploy` folder contains code to build a [vLLM](https://github.com/vllm-project/vllm) image with the required dependencies to serve the Mistral AI model. In the image, the [transformers](https://github.com/huggingface/transformers/) library is used instead of the reference implementation. To build it:
+## Table of Contents
+- [EE_Clean (in the near future MEEstral)](#project-title)
+    - [Installation](#installation)
+    - [Usage](#usage)
+    <!-- - [Features](#features) -->
+    - [Project Structure](#project-structure)
+    - [Acknowledgements](#acknowledgements)
 
-```bash
-docker build deploy --build-arg MAX_JOBS=8
-```
-
-Instructions to run the image can be found in the [official documentation](https://docs.mistral.ai/quickstart).
+---
 
 ## Installation
+Step-by-step instructions on how to install and set up the project locally. This might include cloning the repository and installing dependencies.
 
-```
-pip install -r requirements.txt
-```
-
-## Download the model
-```
-wget https://files.mistral-7b-v0-1.mistral.ai/mistral-7B-v0.1.tar
-tar -xf mistral-7B-v0.1.tar
+```bash
+git clone https://github.com/Xigm/EE_Clean.git
 ```
 
-## Run the model
+Install environment with the environment.yml file. Linux OS is requiered.
 
-```
-python -m main demo /path/to/mistral-7B-v0.1/
-# To give your own prompts
-python -m main interactive /path/to/mistral-7B-v0.1/
-```
-Change `temperature` or `max_tokens` using:
-```
-python -m main interactive /path/to/mistral-7B-v0.1/ --max_tokens 256 --temperature 1.0
+```bash
+conda env create -n your_env_name -f environment.yml
 ```
 
-If you want a self-contained implementation, look at `one_file_ref.py`, or run it with 
-```
-python -m one_file_ref /path/to/mistral-7B-v0.1/
+Install Cuda toolkit (version 11.6+, I used 12.3)
 
-This is a test of the emergency broadcast system. This is only a test.
-
-If this were a real emergency, you would be told what to do.
-
-This is a test
-=====================
-This is another test of the new blogging software. I’m not sure if I’m going to keep it or not. I’m not sure if I’m going to keep
-=====================
-This is a third test, mistral AI is very good at testing. 🙂
-
-This is a third test, mistral AI is very good at testing. 🙂
-
-This
-=====================
+```bash
+conda activate your_env_name
+pip install causal-conv1d
+pip install mamba-ssm
 ```
 
-To run logits equivalence through chunking and sliding window, launch
+
+---
+
+## Usage
+
+To train your own early exits go to file train.py. Specify where the EE's are placed. Training is perfomed with the dataset FineWeb-Edu.
+
+To test inference of the models go to file inference_EE.py. Select the model and modify the input.
+
+---
+
+<!-- ## Features
+Highlight the main features of your project. What makes it special? This is a good place to bullet out the key functionality or purpose of the code.
+
+- Feature 1
+- Feature 2
+- Feature 3
+
+--- -->
+
+## Project Structure
+
+
 ```
-python -m test_generate
+├── datasets/                           # If some local hosted dataset if needed
+│   ├── models/                         # ML models
+│   └── utils/                          # Helper functions
+├── EleutherAI_Eval_harness/            # Codes from EleutherAI to evaluate LLMs
+│   └── lm_eval/                        
+│      ├── models/                      # Wrappers for models to be tested are here
+│      │   ├── mamba_models_EE.py       # Custom wrapper for mamba 
+│      │   └── mistral_models_EE.py     # Custom wrapper for mistral
+│      └── tasks/                       # Different task available
+├── evals/                              # Codes to perform evaluations
+│   ├── individual_evals /              # Evaluate a model in a single task
+│   └── sweep_th/                       # Get results for speed up vs performance
+│   plot_results.py                     # Compute the graphs for the data obtained
+├── models/                             # Main codes for the models
+│   ├── mamba/                          # Mamba implementations
+│   └── mistral/                        # Transformer implementations
+├── weights/                            # To save the backbones and EE weights
+│   ├── mamba/                           
+│   │   ├── codestral7b/                # Main backbone weights
+│   │   └── EE_given_config/            # EE weights for a given configuration
+│   └── mistral/                        # Transformer implementations
+│       ├── mistral7b/                  # Main backbone weights
+│       └── EE_given_config/            # EE weights for a given configuration
+├── envirnment.yml                      # File to import env to conda
+├── inference_EE.py                     # Code to perfor inference of the models
+├── train.py                            # Code to train the EEs
+├── tasks.txt                           # List of all available tasks in EleutherAi eval harness
+└── utils.py                            # Some aux functions
 ```
 
-### Running large models
+---
 
-When running models that are too large to fit a single GPU's memory, use pipeline parallelism (PP) and `torchrun`. This is needed to run `Mixtral-7B-8x`. The code below does 2-way PP.
+## Contributing
+Instructions for users who want to contribute to the project...
 
-```
-torchrun --nproc-per-node 2 -m main demo /path/to/mixtral-7B-8x-v0.1/ --num_pipeline_ranks=2
-```
+---
 
-> [!Note]
-> PP is not supported when running in interactive mode.
+## Acknowledgements
 
-# Sliding window attention
+Thanks to:
 
-## Vanilla attention
-
-Attention is how information is shared between tokens in a sequence.
-In vanilla transformers, attention follows a causal mask: each token in the sequence can attend to itself and all the tokens in the past.
-This ensures that the model is causal, i.e. it can only use information from the past to predict the future.
-
-
-![Causal attention mask](assets/full_attention.png)
-
-## Sliding window to speed-up inference and reduce memory pressure
-
-The number of operations of attention is quadratic in the sequence length, and the memory pressure is linear in the sequence length.
-At inference time, this incurs higher latency and smaller throughput due to reduced cache availability.
-To alleviate this issue, we use a sliding window attention [1,2]: each token can attend to at most W tokens in the past (here, W=3).
-
-![Sliding window attention](assets/sliding_attention.png)
-
-Note that tokens outside the sliding window still influence next word prediction. 
-At each attention layer, information can move forward by W tokens at most: after two attention layers, information can move forward by 2W tokens, etc.
-For instance in a sequence of length 16K and a sliding window of 4K, after 4 layers, information has propagated to the full sequence length.
-
-![Attention through layers](assets/attention_through_layers.png)
-
-Empirically, we see that longer contexts do help *even outside the sliding window* but when the sequence length becomes too large, the model does not use the full context anymore.
-
-## Rolling buffer cache
-
-We implement a rolling buffer cache.
-The cache has a fixed size of W, and we store the (key, value) for position i in cache position i % W.
-When the position i is larger than W, past values in the cache are overwritten.
-
-![Rolling cache](assets/rolling_cache.png)
-
-## Pre-fill and chunking
-
-When generating a sequence, we need to predict tokens one-by-one, as each token is conditioned on the previous ones.
-However, the prompt is known in advance, and we can pre-fill the (k, v) cache with the prompt.
-If the prompt is very large, we can chunk it into smaller pieces, and pre-fill the cache with each chunk.
-For this we can choose as chunk size the window size. For each chunk, we thus need to compute the attention over the cache and over the chunk.
-
-![Chunking](assets/chunking.png)
-
-
-# Sparse Mixture of Experts (SMoE)
-
-Sparse Mixture of Experts allows one to decouple throughput from memory costs by only activating subsets of the overall model for each token. In this approach, each token is assigned to one or more "experts" -- a separate set of weights -- and only processed by sunch experts. This division happens at feedforward layers of the model. The expert models specialize in different aspects of the data, allowing them to capture complex patterns and make more accurate predictions.
-
-![SMoE](assets/smoe.png)
-
-## Pipeline Parallelism
-
-Pipeline parallelism is a set of techniques for partitioning models, enabling the distribution of a large model across multiple GPUs. We provide a simple implementation of pipeline parallelism, which allows our larger models to be executed within the memory constraints of modern GPUs. Note that this implementation favours simplicity over throughput efficiency, and most notabably does not include microbatching.
-
-
-## Integrations and related projects
-
-
-### Model platforms
-
-- Use Mistral AI in HuggingFace:
-  - [Mistral-7B-v0.1](https://huggingface.co/mistralai/Mistral-7B-v0.1)
-  - [Mistral-7B-Instruct-v0.1](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.1)
-- Use Mistral 7B on [Vertex AI](https://github.com/GoogleCloudPlatform/vertex-ai-samples/blob/main/notebooks/community/model_garden/model_garden_pytorch_mistral.ipynb)
-- Use Mistral 7B on [Replicate](https://replicate.com/lucataco/mistral-7b-v0.1)
-- Use Mistral 7B on [Sagemaker Jumpstart](https://aws.amazon.com/blogs/machine-learning/mistral-7b-foundation-models-from-mistral-ai-are-now-available-in-amazon-sagemaker-jumpstart/)
-- Use Mistral 7B on [Baseten](https://app.baseten.co/explore/)
-
-### Applications
-
-- Compare Mistral 7B to Llama 13B on [LLMBoxing](https://llmboxing.com/)
-- Compare Mistral 7B to 10+ LLMs on [Chatbot Arena](https://chat.lmsys.org/) or host it yourself with [FastChat](https://github.com/lm-sys/FastChat) 
-- Use Mistral 7B in [Dust](https://dust.tt/)
-- Speak to Mistral AI Instruct on [Perplexity labs](https://labs.perplexity.ai/) (warning: deployed version is not [guardrailed](https://docs.mistral.ai/usage/guardrailing)) 
-- Use Mistral 7B in [Quivr](https://blog.quivr.app/is-mistral-a-good-replacement-for-openai/)
-- Use Mistral 7B or its Zephyr derivate on [LlamaIndex](https://docs.llamaindex.ai/en/stable/core_modules/model_modules/llms/root.html#open-source-llms)
-
-### Local deployment
-- [Ollama](https://ollama.ai/library/mistral) local deployment
-- [GGML](https://github.com/ggerganov/ggml) local deployment
-- [TextSynth](https://textsynth.com/pricing.html) local deployment
-
-### Derived models
-
-- Multimodal: [BakLLaVa-1](https://huggingface.co/SkunkworksAI/BakLLaVA-1)
-
-- Model fine-tuned on direct preferences: [Zephyr-7B-alpha](https://huggingface.co/HuggingFaceH4/zephyr-7b-alpha)
-
-- Model fine-tuned on generated data: [OpenOrca](https://huggingface.co/Open-Orca/Mistral-7B-OpenOrca)
-
-
-## References
-
-[1] [Generating Long Sequences with Sparse Transformers, Child et al. 2019](https://arxiv.org/pdf/1904.10509.pdf)
-
-[2] [Longformer: The Long-Document Transformer, Beltagy et al. 2020](https://arxiv.org/pdf/2004.05150v2.pdf)
+* EleutherAI
+* Mistral
+* HuggingFace
