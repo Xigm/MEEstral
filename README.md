@@ -1,4 +1,4 @@
-# Project Title
+# Dynamic computing for LLMs: The role of early exits in Transformers and Mamba based architectures
 
 Project with the aim to implement and analyze the impact on computation of EE in LLMs: Transformers and Mamba.
 
